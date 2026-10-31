@@ -11,6 +11,7 @@ import type { ApiInstitution, LoginRequest } from '../types/api';
 import {
   STORAGE_INSTITUTION_KEY,
   STORAGE_TOKEN_KEY,
+  setAuthToken,
   setOnSessionExpired,
 } from '../services/api';
 import { loginInstitution } from '../services/authService';
@@ -63,12 +64,17 @@ function readStoredSession(): { token: string | null; institution: ApiInstitutio
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const initial = useMemo(() => readStoredSession(), []);
+  const initial = useMemo(() => {
+    const stored = readStoredSession();
+    setAuthToken(stored.token);
+    return stored;
+  }, []);
   const [token, setToken] = useState<string | null>(initial.token);
   const [institution, setInstitution] = useState<ApiInstitution | null>(initial.institution);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
 
   const signOut = useCallback((notice?: string) => {
+    setAuthToken(null);
     try {
       localStorage.removeItem(STORAGE_TOKEN_KEY);
       localStorage.removeItem(STORAGE_INSTITUTION_KEY);
@@ -93,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (credentials: LoginRequest): Promise<ApiInstitution> => {
     const response = await loginInstitution(credentials);
+    setAuthToken(response.token);
     try {
       localStorage.setItem(STORAGE_TOKEN_KEY, response.token);
       localStorage.setItem(STORAGE_INSTITUTION_KEY, JSON.stringify(response.institution));

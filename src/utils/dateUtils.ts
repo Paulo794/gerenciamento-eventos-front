@@ -199,12 +199,14 @@ export function matchesPeriodFilter(
   }
 
   if (period === 'THIS_MONTH') {
-    const startParts = getSaoPauloDateParts(event.startInstantMs);
-    const endParts = getSaoPauloDateParts(event.endInstantMs);
-    return (
-      (startParts.year === nowParts.year && startParts.month === nowParts.month) ||
-      (endParts.year === nowParts.year && endParts.month === nowParts.month)
-    );
+    const lastDayOfMonth = new Date(nowParts.year, nowParts.month, 0).getDate();
+    const monthStartMs = new Date(
+      `${nowParts.year}-${pad(nowParts.month)}-01T00:00:00${SAO_PAULO_OFFSET}`,
+    ).getTime();
+    const monthEndMs = new Date(
+      `${nowParts.year}-${pad(nowParts.month)}-${pad(lastDayOfMonth)}T23:59:59.999${SAO_PAULO_OFFSET}`,
+    ).getTime();
+    return event.startInstantMs <= monthEndMs && event.endInstantMs >= monthStartMs;
   }
 
   return true;

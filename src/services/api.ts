@@ -15,12 +15,20 @@ export class ApiError extends Error {
 
 type SessionExpiredListener = () => void;
 let onSessionExpiredCallback: SessionExpiredListener | null = null;
+let inMemoryToken: string | null = null;
 
 export function setOnSessionExpired(listener: SessionExpiredListener | null): void {
   onSessionExpiredCallback = listener;
 }
 
+export function setAuthToken(token: string | null): void {
+  inMemoryToken = token;
+}
+
 export function getStoredToken(): string | null {
+  if (inMemoryToken) {
+    return inMemoryToken;
+  }
   try {
     return localStorage.getItem(STORAGE_TOKEN_KEY);
   } catch {
