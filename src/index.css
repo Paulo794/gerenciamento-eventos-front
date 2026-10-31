@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* Regras de acessibilidade e contenção de rolagem para modais nativos <dialog> */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
