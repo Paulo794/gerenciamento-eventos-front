@@ -1,7 +1,12 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import { Footer } from './components/layout/Footer';
 import { Navbar } from './components/layout/Navbar';
+import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
+import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { EventFormPage } from './pages/admin/EventFormPage';
+import { InstitutionsAdminPage } from './pages/admin/InstitutionsAdminPage';
+import { LoginPage } from './pages/admin/LoginPage';
 import { EventDetailsPage } from './pages/public/EventDetailsPage';
 import { HomePage } from './pages/public/HomePage';
 import { InstitutionPage } from './pages/public/InstitutionPage';
@@ -15,7 +20,7 @@ function NotFoundPage() {
           Página não encontrada
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          O endereço que você tentou acessar não existe ou ainda está em construção.
+          O endereço que você tentou acessar não existe ou foi movido.
         </p>
         <Link
           to="/"
@@ -36,9 +41,48 @@ export function App() {
           <Navbar />
           <main className="flex-1">
             <Routes>
+              {/* Rotas Públicas */}
               <Route path="/" element={<HomePage />} />
               <Route path="/eventos/:id" element={<EventDetailsPage />} />
               <Route path="/instituicoes/:id" element={<InstitutionPage />} />
+              <Route path="/login" element={<LoginPage />} />
+
+              {/* Rotas Institucionais Autenticadas */}
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute>
+                    <AdminDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/eventos/novo"
+                element={
+                  <ProtectedRoute>
+                    <EventFormPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/eventos/:id/editar"
+                element={
+                  <ProtectedRoute>
+                    <EventFormPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Rota Exclusiva de Administrador Geral */}
+              <Route
+                path="/admin/instituicoes"
+                element={
+                  <ProtectedRoute requireAdmin>
+                    <InstitutionsAdminPage />
+                  </ProtectedRoute>
+                }
+              />
+
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </main>

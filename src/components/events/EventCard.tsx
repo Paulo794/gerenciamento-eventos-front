@@ -6,8 +6,19 @@ interface EventCardProps {
   event: EventViewModel;
 }
 
+interface OriginLocationState {
+  fromPath?: string;
+}
+
 export function EventCard({ event }: EventCardProps) {
   const location = useLocation();
+  const originState = location.state as OriginLocationState | null;
+  const currentPathWithSearch = `${location.pathname}${location.search}`;
+  const linkState = {
+    fromPath: currentPathWithSearch,
+    fromSearch: location.search,
+    parentFromPath: originState?.fromPath,
+  };
 
   return (
     <article className="flex h-full flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-xs transition-shadow hover:shadow-md">
@@ -17,6 +28,7 @@ export function EventCard({ event }: EventCardProps) {
           {event.institution_name && (
             <Link
               to={`/instituicoes/${event.institution_id}`}
+              state={linkState}
               className="text-xs font-semibold text-red-700 hover:text-red-800 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
             >
               {event.institution_name}
@@ -27,7 +39,7 @@ export function EventCard({ event }: EventCardProps) {
         <h2 className="mt-3 text-lg font-bold tracking-tight text-slate-900">
           <Link
             to={`/eventos/${event.id}`}
-            state={{ fromSearch: location.search }}
+            state={linkState}
             className="hover:text-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
           >
             {event.name}
@@ -60,7 +72,7 @@ export function EventCard({ event }: EventCardProps) {
         <div className="mt-4 flex items-center justify-end">
           <Link
             to={`/eventos/${event.id}`}
-            state={{ fromSearch: location.search }}
+            state={linkState}
             className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
           >
             Ver detalhes e salas

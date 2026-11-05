@@ -1,19 +1,41 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { EventCard } from '../../components/events/EventCard';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/FeedbackStates';
+import { useNowMs } from '../../hooks/useNowMs';
 import { getEventsByInstitutionId } from '../../services/eventService';
 import { getInstitutionById } from '../../services/institutionService';
 import type { ApiInstitution, EventViewModel } from '../../types/api';
+import { refreshEventTemporalStatus } from '../../utils/dateUtils';
+
+interface LocationState {
+  fromPath?: string;
+  fromSearch?: string;
+  parentFromPath?: string;
+}
 
 export function InstitutionPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const state = location.state as LocationState | null;
+  const backUrl = state?.fromPath
+    ? state.fromPath
+    : state?.fromSearch
+      ? `/${state.fromSearch}`
+      : '/';
+  const backLabel = backUrl.startsWith('/eventos/')
+    ? 'Voltar para os detalhes do evento'
+    : backUrl.startsWith('/admin/instituicoes')
+      ? 'Voltar para Administração de Instituições'
+      : 'Voltar para a agenda geral';
+
   const institutionId = Number(id);
 
   const [institution, setInstitution] = useState<ApiInstitution | null>(null);
   const [events, setEvents] = useState<EventViewModel[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { nowMs, syncNow } = useNowMs();
 
   const loadInstitutionData = useCallback(async () => {
     if (!Number.isInteger(institutionId) || institutionId <= 0) {
@@ -33,6 +55,7 @@ export function InstitutionPage() {
       ]);
       setInstitution(instData);
       setEvents(instEvents);
+      syncNow();
     } catch (err) {
       setErrorMessage(
         err instanceof Error
@@ -42,21 +65,27 @@ export function InstitutionPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [institutionId]);
+  }, [institutionId, syncNow]);
 
   useEffect(() => {
     void loadInstitutionData();
   }, [loadInstitutionData]);
 
+  const liveEvents = useMemo(
+    () => events.map((ev) => refreshEventTemporalStatus(ev, nowMs)),
+    [events, nowMs],
+  );
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-6">
         <Link
-          to="/"
+          to={backUrl}
+          state={state?.parentFromPath ? { fromPath: state.parentFromPath } : undefined}
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-700 hover:text-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
         >
           <span aria-hidden="true">&larr;</span>
-          Voltar para a agenda geral
+          {backLabel}
         </Link>
       </div>
 
@@ -92,7 +121,7 @@ export function InstitutionPage() {
               )}
               <div>
                 <dt className="font-semibold text-slate-800">Eventos publicados</dt>
-                <dd className="mt-0.5">{events.length}</dd>
+                <dd className="mt-0.5">{liveEvents.length}</dd>
               </div>
             </dl>
           </section>
@@ -105,14 +134,14 @@ export function InstitutionPage() {
               Eventos de {institution.name}
             </h2>
 
-            {events.length === 0 ? (
+            {liveEvents.length === 0 ? (
               <EmptyState
                 title="Esta instituição ainda não possui eventos publicados"
                 description="Não há eventos cadastrados para esta unidade no momento."
               />
             ) : (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {events.map((ev) => (
+                {liveEvents.map((ev) => (
                   <EventCard key={ev.id} event={ev} />
                 ))}
               </div>

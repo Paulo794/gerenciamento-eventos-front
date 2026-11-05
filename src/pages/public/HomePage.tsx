@@ -3,9 +3,10 @@ import { useSearchParams } from 'react-router-dom';
 import { EventCard } from '../../components/events/EventCard';
 import { EventFilters, type InstitutionOption } from '../../components/events/EventFilters';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/FeedbackStates';
+import { useNowMs } from '../../hooks/useNowMs';
 import { getPublicEvents } from '../../services/eventService';
 import type { EventViewModel, PeriodFilter, TemporalEventStatus } from '../../types/api';
-import { matchesPeriodFilter } from '../../utils/dateUtils';
+import { matchesPeriodFilter, refreshEventTemporalStatus } from '../../utils/dateUtils';
 
 const VALID_PERIODS: PeriodFilter[] = ['ALL', 'TODAY', 'NEXT_7_DAYS', 'THIS_MONTH'];
 const VALID_STATUSES: Array<TemporalEventStatus | 'ALL'> = [
@@ -20,6 +21,7 @@ export function HomePage() {
   const [events, setEvents] = useState<EventViewModel[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { nowMs, syncNow } = useNowMs();
 
   const searchQuery = searchParams.get('q') ?? '';
   const institutionId = searchParams.get('institution') ?? '';
@@ -37,6 +39,7 @@ export function HomePage() {
     try {
       const data = await getPublicEvents();
       setEvents(data);
+      syncNow();
     } catch (err) {
       setErrorMessage(
         err instanceof Error ? err.message : 'Ocorreu um erro ao buscar a agenda de eventos.',
@@ -44,15 +47,20 @@ export function HomePage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [syncNow]);
 
   useEffect(() => {
     void loadEvents();
   }, [loadEvents]);
 
+  const liveEvents = useMemo(
+    () => events.map((ev) => refreshEventTemporalStatus(ev, nowMs)),
+    [events, nowMs],
+  );
+
   const institutions = useMemo<InstitutionOption[]>(() => {
     const map = new Map<number, string>();
-    for (const ev of events) {
+    for (const ev of liveEvents) {
       if (ev.institution_id && ev.institution_name) {
         map.set(ev.institution_id, ev.institution_name);
       }
@@ -60,13 +68,12 @@ export function HomePage() {
     return Array.from(map.entries())
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-  }, [events]);
+  }, [liveEvents]);
 
   const filteredEvents = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
-    const nowMs = Date.now();
 
-    return events.filter((ev) => {
+    return liveEvents.filter((ev) => {
       if (normalizedQuery) {
         const matchesName = ev.name.toLowerCase().includes(normalizedQuery);
         const matchesAddress = ev.address.toLowerCase().includes(normalizedQuery);
@@ -90,7 +97,7 @@ export function HomePage() {
 
       return true;
     });
-  }, [events, searchQuery, institutionId, statusFilter, period]);
+  }, [liveEvents, searchQuery, institutionId, statusFilter, period, nowMs]);
 
   function updateParam(key: string, value: string, defaultValue = '') {
     const next = new URLSearchParams(searchParams);
