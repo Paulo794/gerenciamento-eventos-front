@@ -156,6 +156,23 @@ export function toEventViewModel(apiEvent: ApiEvent, nowMs: number = Date.now())
 }
 
 /**
+ * Atualiza o estado temporal de um EventViewModel já construído para o instante atual.
+ */
+export function refreshEventTemporalStatus(
+  event: EventViewModel,
+  nowMs: number = Date.now(),
+): EventViewModel {
+  const nextStatus = getTemporalEventStatus(event.startInstantMs, event.endInstantMs, nowMs);
+  if (nextStatus === event.temporalStatus) {
+    return event;
+  }
+  return {
+    ...event,
+    temporalStatus: nextStatus,
+  };
+}
+
+/**
  * Obtém { year, month, day } de um timestamp no fuso America/Sao_Paulo.
  */
 function getSaoPauloDateParts(ms: number): { year: number; month: number; day: number } {
@@ -194,7 +211,8 @@ export function matchesPeriodFilter(
   }
 
   if (period === 'NEXT_7_DAYS') {
-    const sevenDaysEndMs = todayEndMs + 7 * 24 * 60 * 60 * 1000;
+    // Janela de 7 dias do calendário a partir de hoje (hoje + próximos 6 dias completos)
+    const sevenDaysEndMs = todayEndMs + 6 * 24 * 60 * 60 * 1000;
     return event.startInstantMs <= sevenDaysEndMs && event.endInstantMs >= todayStartMs;
   }
 

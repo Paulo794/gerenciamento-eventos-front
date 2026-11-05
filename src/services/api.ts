@@ -74,7 +74,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     });
   } catch {
     throw new ApiError(
-      'Não foi possível conectar ao servidor da API. Verifique se o backend em Go está em execução.',
+      'Não foi possível conectar ao servidor no momento. Verifique sua conexão e tente novamente.',
       0,
     );
   }
