@@ -6,12 +6,25 @@ import { ConfirmDeleteModal } from '../../components/ui/ConfirmDeleteModal';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/FeedbackStates';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNowMs } from '../../hooks/useNowMs';
-import { deleteEvent, getEventsByInstitutionId } from '../../services/eventService';
-import type { EventViewModel } from '../../types/api';
-import { refreshEventTemporalStatus } from '../../utils/dateUtils';
+import {
+  deleteEvent,
+  getEventsByInstitutionId,
+  getPublicEvents,
+} from '../../services/eventService';
+import type { EventViewModel, PeriodFilter } from '../../types/api';
+import { matchesPeriodFilter, refreshEventTemporalStatus } from '../../utils/dateUtils';
 
 interface DashboardLocationState {
   feedbackMessage?: string;
+}
+
+interface UnitSummaryRow {
+  institutionId: number;
+  institutionName: string;
+  total: number;
+  agendados: number;
+  emAndamento: number;
+  encerrados: number;
 }
 
 export function AdminDashboard() {
@@ -35,35 +48,136 @@ export function AdminDashboard() {
 
   const [eventForRooms, setEventForRooms] = useState<EventViewModel | null>(null);
 
+  // Estado da Visão Geral entre Unidades (Modo Leitura — RF10b)
+  const [regionalEvents, setRegionalEvents] = useState<EventViewModel[]>([]);
+  const [isLoadingRegional, setIsLoadingRegional] = useState<boolean>(true);
+  const [regionalError, setRegionalError] = useState<string | null>(null);
+  const [regionalPeriod, setRegionalPeriod] = useState<PeriodFilter>('ALL');
+  const [hasLoadedMyEvents, setHasLoadedMyEvents] = useState<boolean>(false);
+
+  // Controle de concorrência para descartar respostas atrasadas (ex.: iniciadas antes de uma exclusão)
+  const myEventsReqIdRef = useRef<number>(0);
+  const regionalReqIdRef = useRef<number>(0);
+  const deletedEventIdsRef = useRef<Set<number>>(new Set());
+
   const institutionId = institution?.id ?? 0;
 
   const loadMyEvents = useCallback(async () => {
     if (!institutionId) return;
+    const reqId = ++myEventsReqIdRef.current;
     setIsLoading(true);
     setErrorMessage(null);
     try {
       const data = await getEventsByInstitutionId(institutionId);
-      setEvents(data);
+      if (reqId !== myEventsReqIdRef.current) return;
+      setEvents(data.filter((ev) => !deletedEventIdsRef.current.has(ev.id)));
+      setHasLoadedMyEvents(true);
       syncNow();
     } catch (err) {
+      if (reqId !== myEventsReqIdRef.current) return;
       setErrorMessage(
         err instanceof Error
           ? err.message
           : 'Não foi possível carregar os eventos da sua instituição.',
       );
     } finally {
-      setIsLoading(false);
+      if (reqId === myEventsReqIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [institutionId, syncNow]);
 
-  useEffect(() => {
+  const loadRegionalOverview = useCallback(async () => {
+    const reqId = ++regionalReqIdRef.current;
+    setIsLoadingRegional(true);
+    setRegionalError(null);
+    try {
+      const data = await getPublicEvents();
+      if (reqId !== regionalReqIdRef.current) return;
+      setRegionalEvents(data.filter((ev) => !deletedEventIdsRef.current.has(ev.id)));
+      syncNow();
+    } catch (err) {
+      if (reqId !== regionalReqIdRef.current) return;
+      setRegionalError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível carregar a visão consolidada das unidades.',
+      );
+    } finally {
+      if (reqId === regionalReqIdRef.current) {
+        setIsLoadingRegional(false);
+      }
+    }
+  }, [syncNow]);
+
+  const refreshDashboardData = useCallback(() => {
     void loadMyEvents();
-  }, [loadMyEvents]);
+    void loadRegionalOverview();
+  }, [loadMyEvents, loadRegionalOverview]);
+
+  useEffect(() => {
+    refreshDashboardData();
+  }, [refreshDashboardData]);
 
   const liveEvents = useMemo(
     () => events.map((ev) => refreshEventTemporalStatus(ev, nowMs)),
     [events, nowMs],
   );
+
+  // Garante fonte de dados consistente para a unidade logada entre os KPIs locais e a tabela consolidada
+  const liveRegionalEvents = useMemo(() => {
+    const baseEvents =
+      hasLoadedMyEvents && !errorMessage && institutionId > 0
+        ? [
+            ...regionalEvents.filter((ev) => ev.institution_id !== institutionId),
+            ...events.map((ev) => ({
+              ...ev,
+              institution_name: ev.institution_name || institution?.name || `Unidade #${institutionId}`,
+            })),
+          ]
+        : regionalEvents;
+
+    return baseEvents
+      .map((ev) => refreshEventTemporalStatus(ev, nowMs))
+      .filter((ev) => matchesPeriodFilter(ev, regionalPeriod, nowMs));
+  }, [
+    regionalEvents,
+    events,
+    hasLoadedMyEvents,
+    errorMessage,
+    institutionId,
+    institution?.name,
+    nowMs,
+    regionalPeriod,
+  ]);
+
+  const unitSummaries = useMemo<UnitSummaryRow[]>(() => {
+    const map = new Map<number, UnitSummaryRow>();
+    for (const ev of liveRegionalEvents) {
+      const id = ev.institution_id;
+      const name = ev.institution_name || `Unidade #${id}`;
+      let row = map.get(id);
+      if (!row) {
+        row = {
+          institutionId: id,
+          institutionName: name,
+          total: 0,
+          agendados: 0,
+          emAndamento: 0,
+          encerrados: 0,
+        };
+        map.set(id, row);
+      }
+      row.total += 1;
+      if (ev.temporalStatus === 'AGENDADO') row.agendados += 1;
+      else if (ev.temporalStatus === 'EM_ANDAMENTO') row.emAndamento += 1;
+      else row.encerrados += 1;
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.institutionName.localeCompare(b.institutionName, 'pt-BR'),
+    );
+  }, [liveRegionalEvents]);
 
   const stats = useMemo(() => {
     let agendados = 0;
@@ -84,14 +198,22 @@ export function AdminDashboard() {
 
   async function handleConfirmDelete() {
     if (!eventToDelete) return;
+    const removedId = eventToDelete.id;
+    const removedName = eventToDelete.name;
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      await deleteEvent(eventToDelete.id);
-      const removedName = eventToDelete.name;
-      setEvents((prev) => prev.filter((item) => item.id !== eventToDelete.id));
+      await deleteEvent(removedId);
+      // Registra o ID excluído e invalida requisições em voo iniciadas antes da conclusão da exclusão
+      deletedEventIdsRef.current.add(removedId);
+      myEventsReqIdRef.current += 1;
+      regionalReqIdRef.current += 1;
+
+      setEvents((prev) => prev.filter((item) => item.id !== removedId));
+      setRegionalEvents((prev) => prev.filter((item) => item.id !== removedId));
       setEventToDelete(null);
       setFeedbackBanner(`O evento "${removedName}" foi excluído com sucesso.`);
+      refreshDashboardData();
     } catch (err) {
       setDeleteError(
         err instanceof Error ? err.message : 'Não foi possível excluir o evento selecionado.',
@@ -194,8 +316,8 @@ export function AdminDashboard() {
           </h2>
           <button
             type="button"
-            onClick={() => void loadMyEvents()}
-            disabled={isLoading}
+            onClick={refreshDashboardData}
+            disabled={isLoading || isLoadingRegional}
             className="text-xs font-semibold text-red-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:opacity-50"
           >
             Atualizar lista
@@ -205,7 +327,7 @@ export function AdminDashboard() {
         {isLoading ? (
           <LoadingState message="Carregando eventos da sua instituição..." />
         ) : errorMessage ? (
-          <ErrorState message={errorMessage} onRetry={loadMyEvents} />
+          <ErrorState message={errorMessage} onRetry={refreshDashboardData} />
         ) : liveEvents.length === 0 ? (
           <EmptyState
             title="Sua instituição ainda não cadastrou eventos"
@@ -300,6 +422,147 @@ export function AdminDashboard() {
                 </article>
               );
             })}
+          </div>
+        )}
+      </section>
+
+      {/* Visão Geral Consolidada entre Unidades (Modo Leitura — RF10b) */}
+      <section
+        aria-labelledby="regional-overview-heading"
+        className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-xs sm:p-8"
+      >
+        <div className="flex flex-col justify-between gap-4 border-b border-slate-100 pb-4 sm:flex-row sm:items-end">
+          <div>
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700">
+              Calendário Unificado — Modo Leitura
+            </span>
+            <h2
+              id="regional-overview-heading"
+              className="mt-1.5 text-lg font-bold tracking-tight text-slate-900"
+            >
+              Visão Consolidada de Eventos por Unidade
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-600">
+              Totais consolidados das unidades com eventos publicados na plataforma. O filtro de
+              período contabiliza eventos que ocorram total ou parcialmente no intervalo selecionado.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <label
+                htmlFor="regional-period-select"
+                className="block text-[11px] font-semibold tracking-wide text-slate-700 uppercase"
+              >
+                Período de referência
+              </label>
+              <select
+                id="regional-period-select"
+                value={regionalPeriod}
+                onChange={(e) => setRegionalPeriod(e.target.value as PeriodFilter)}
+                className="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:border-red-700 focus:outline-none focus:ring-2 focus:ring-red-700/20"
+              >
+                <option value="ALL">Qualquer período</option>
+                <option value="TODAY">Hoje</option>
+                <option value="NEXT_7_DAYS">Próximos 7 dias</option>
+                <option value="THIS_MONTH">Este mês</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={refreshDashboardData}
+              disabled={isLoading || isLoadingRegional}
+              className="mt-4 text-xs font-semibold text-red-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:opacity-50"
+            >
+              Atualizar visão
+            </button>
+          </div>
+        </div>
+
+        {isLoadingRegional ? (
+          <LoadingState message="Carregando indicadores consolidados por unidade..." />
+        ) : regionalError ? (
+          <ErrorState message={regionalError} onRetry={refreshDashboardData} />
+        ) : unitSummaries.length === 0 ? (
+          <EmptyState
+            title="Nenhum evento encontrado para o período selecionado"
+            description="Não há eventos publicados pelas unidades que ocorram no período filtrado."
+          />
+        ) : (
+          <div
+            tabIndex={0}
+            role="region"
+            aria-labelledby="regional-overview-heading"
+            className="overflow-x-auto rounded-xl border border-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-700"
+          >
+            <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
+              <caption className="sr-only">
+                Resumo de eventos publicados por unidade e status temporal no período selecionado
+              </caption>
+              <thead className="bg-slate-50 font-bold tracking-wide text-slate-700 uppercase">
+                <tr>
+                  <th scope="col" className="px-4 py-3">
+                    Unidade / Instituição
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center">
+                    Total no Período
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center text-blue-800">
+                    Agendados
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center text-emerald-800">
+                    Em andamento
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-center text-slate-600">
+                    Encerrados
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-right">
+                    Agenda da Unidade
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {unitSummaries.map((row) => {
+                  const isCurrentUnit = row.institutionId === institutionId;
+                  return (
+                    <tr
+                      key={row.institutionId}
+                      className={isCurrentUnit ? 'bg-red-50/40' : 'hover:bg-slate-50'}
+                    >
+                      <th scope="row" className="px-4 py-3 font-semibold text-slate-900">
+                        <span>{row.institutionName}</span>
+                        {isCurrentUnit && (
+                          <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-800">
+                            Sua unidade
+                          </span>
+                        )}
+                      </th>
+                      <td className="px-4 py-3 text-center font-bold text-slate-900">
+                        {row.total}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-blue-700">
+                        {row.agendados}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-emerald-700">
+                        {row.emAndamento}
+                      </td>
+                      <td className="px-4 py-3 text-center font-medium text-slate-600">
+                        {row.encerrados}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          to={`/instituicoes/${row.institutionId}`}
+                          state={{ fromPath: '/admin' }}
+                          className="font-semibold text-red-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
+                        >
+                          Ver eventos &rarr;
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </section>
