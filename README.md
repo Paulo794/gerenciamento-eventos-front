@@ -1,6 +1,8 @@
-# Portal de Eventos das Fatecs — Frontend
+# Calendário de Eventos Unificado das Fatecs (Polo Regional 08) — Frontend
 
-Interface web da plataforma centralizada de divulgação e gerenciamento de eventos acadêmicos das Faculdades de Tecnologia do Centro Paula Souza (CEETEPS), tendo a **Fatec Shunji Nishimura (Pompeia)** como unidade piloto.
+Interface web da plataforma centralizada de divulgação, sincronia de agenda e gerenciamento de eventos acadêmicos das Faculdades de Tecnologia do Centro Paula Souza (CEETEPS), tendo a **Fatec Shunji Nishimura (Pompeia)** como unidade piloto e foco nas **Fatecs do Polo Regional 08**:
+- **Em operação:** Adamantina, Assis, Garça, Marília, Ourinhos, Pompéia e Presidente Prudente.
+- **Em implantação (2027):** Paraguaçu Paulista e Teodoro Sampaio.
 
 ---
 
@@ -32,14 +34,15 @@ Interface web da plataforma centralizada de divulgação e gerenciamento de even
 ### Área Institucional e Administrativa (Unidades Fatec e Admin Geral)
 - **Autenticação Institucional (`/login`)**:
   - Login via JWT (`POST /login`), validação de expiração do token e tratamento diferenciado entre credenciais inválidas e sessão expirada.
-- **Painel da Unidade (`/admin`)**:
+- **Painel da Unidade e Visão Consolidada (`/admin`)**:
   - Resumo de indicadores (KPIs) da unidade: Total de eventos, Agendados, Em andamento e Encerrados.
   - Listagem e gerenciamento dos eventos pertencentes à instituição autenticada (onde ficam as ações de editar, excluir e gerenciar salas).
   - Exclusão de eventos com modal de confirmação acessível (`ConfirmDeleteModal`).
   - Gerenciamento de **Salas do Evento** (`RoomManagerModal`): listagem, adição, renomeação e remoção de salas/auditórios.
+  - **Visão Consolidada de Eventos por Unidade (Modo Leitura)**: tabela acessível consolidando os eventos publicados por todas as unidades (`GET /events`) com filtro por período (*Qualquer período*, *Hoje*, *Próximos 7 dias*, *Este mês*) usando a regra de interseção (`matchesPeriodFilter`).
 - **Cadastro e Edição de Eventos (`/admin/eventos/novo` e `/admin/eventos/:id/editar`)**:
   - Validação por campo com foco automático no primeiro erro e contadores de caracteres alinhados aos limites do banco.
-  - Alerta informativo (não-bloqueante) caso já exista outro evento da mesma instituição cadastrado no mesmo intervalo de horário.
+  - Alerta informativo (não-bloqueante) de sobreposição de horário separado em dois níveis: (1) conflito na **própria instituição** e (2) conflito com **outras unidades** no calendário unificado (`GET /events`), além de aviso com botão de nova tentativa caso a consulta de verificação falhe.
   - Aviso de alterações não salvas ao fechar/recarregar a aba (`beforeunload`) e ao clicar nos links de voltar/cancelar do próprio formulário (navegações externas pelo menu superior ou botões de histórico do navegador não são bloqueadas).
 - **Administração de Instituições (`/admin/instituicoes`)** *(exclusivo para perfil Administrador Geral)*:
   - Cadastro de novas unidades/instituições com definição de perfil (Unidade padrão ou Administrador Geral).
@@ -53,9 +56,11 @@ Interface web da plataforma centralizada de divulgação e gerenciamento de even
 - O backend Go atual recebe strings SQL (`YYYY-MM-DD HH:mm:ss`) sem fuso na gravação e devolve timestamps rotulados com sufixo nominal `Z` (`YYYY-MM-DDTHH:mm:ssZ`) sem ter convertido o horário local ao gravar no MariaDB.
 - Para evitar deslocamento de 3 horas na exibição e na edição, `src/utils/dateUtils.ts` (`normalizeApiDateString`) adapta tanto strings SQL sem offset quanto strings com `Z` nominal vindas da API atual para o fuso oficial do piloto (`America/Sao_Paulo`, `-03:00`), preservando strings que já tragam offset explícito. Caso o contrato de fuso do backend seja alterado no futuro, essa função deve ser revisada em conjunto.
 
-### Limitações Atuais (Dependentes de Evolução da API)
+### Limitações Atuais e Evoluções Previstas (PRD / SDD)
+- **Conflito de agenda e Visão Consolidada por Unidade**: `EventFormPage.tsx` verifica sobreposição de horário consultando `GET /events` (separando conflitos na própria unidade e em outras unidades, sem considerar horários consecutivos como conflito e exibindo aviso com nova tentativa caso a consulta falhe). Em `AdminDashboard.tsx`, além dos KPIs da própria unidade, é exibida a tabela de **Visão Consolidada de Eventos por Unidade (Modo Leitura)** sincronizada com a lista local e filtrável por período. Como `GET /events` não distingue regional no banco, a tabela consolida todas as unidades com eventos publicados.
+- **Relatórios e Métricas de Participação**: a exportação de relatórios gerenciais aguarda definição de formato com o cliente, e métricas de participações (alunos, docentes, empresários) e submissão de projetos dependem de novas tabelas e rotas no backend Go.
 - **Permissões de eventos para Administrador Geral**: na API atual, apenas a instituição proprietária do evento (`IsEventOwner`) pode editar, excluir ou gerenciar salas de um evento. Portanto, mesmo contas com perfil Administrador Geral gerenciam apenas os eventos da própria unidade em `/admin`.
-- **Filtro de instituições na Agenda Pública**: como não há endpoint de listagem geral de todas as instituições, o seletor de unidades na `HomePage` lista apenas as instituições que possuem eventos publicados no retorno de `GET /events`.
+- **Filtro de instituições e 9 cidades do Polo Regional 08**: como não há endpoint `GET /institutions` na API Go, o seletor de unidades na `HomePage` e a tabela consolidada derivam das instituições que possuem eventos publicados em `GET /events` (unidades sem eventos não aparecem na lista atual). Além disso, a busca por município dentro de `address` é textual e distingue-se da cidade-sede da instituição organizadora.
 - **Funcionalidades fora do contrato atual da API**: cancelamento/reativação de eventos, histórico de remarcações, filtro estruturado por cidade/regional e campo de categoria do evento dependem de evolução no banco de dados e no backend Go, não estando presentes nesta versão.
 
 ---
