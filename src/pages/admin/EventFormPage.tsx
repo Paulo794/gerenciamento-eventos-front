@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   createEvent,
   getEventById,
-  getEventsByInstitutionId,
+  getPublicEvents,
   updateEvent,
 } from '../../services/eventService';
 import type { EventViewModel } from '../../types/api';
@@ -66,7 +66,9 @@ export function EventFormPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isForbiddenOwner, setIsForbiddenOwner] = useState<boolean>(false);
 
-  const [existingInstitutionEvents, setExistingInstitutionEvents] = useState<EventViewModel[]>([]);
+  const [allCalendarEvents, setAllCalendarEvents] = useState<EventViewModel[]>([]);
+  const [conflictCheckError, setConflictCheckError] = useState<string | null>(null);
+  const [isCheckingConflicts, setIsCheckingConflicts] = useState<boolean>(false);
 
   const institutionId = institution?.id ?? 0;
 
@@ -91,15 +93,25 @@ export function EventFormPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty, isSubmitting]);
 
-  // Carrega os eventos da instituição para o alerta informativo opcional de sobreposição de horário
+  // Carrega todos os eventos públicos (GET /events) para verificar conflitos na própria unidade e entre unidades
+  const loadEventsForConflictCheck = useCallback(async () => {
+    setIsCheckingConflicts(true);
+    setConflictCheckError(null);
+    try {
+      const list = await getPublicEvents();
+      setAllCalendarEvents(list);
+    } catch {
+      setConflictCheckError(
+        'Não foi possível verificar conflitos de agenda no momento. Você ainda pode salvar o evento normalmente.',
+      );
+    } finally {
+      setIsCheckingConflicts(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!institutionId) return;
-    getEventsByInstitutionId(institutionId)
-      .then((list) => setExistingInstitutionEvents(list))
-      .catch(() => {
-        // Falha silenciosa: o alerta de sobreposição é apenas informativo
-      });
-  }, [institutionId]);
+    void loadEventsForConflictCheck();
+  }, [loadEventsForConflictCheck]);
 
   const loadTargetEvent = useCallback(async () => {
     if (!isEditMode) return;
@@ -145,20 +157,36 @@ export function EventFormPage() {
     void loadTargetEvent();
   }, [loadTargetEvent]);
 
-  // Alerta informativo (não-bloqueante) caso outro evento da mesma instituição ocorra no mesmo intervalo
-  const overlappingEvents = useMemo<EventViewModel[]>(() => {
-    if (!startDate || !endDate) return [];
+  // Alerta informativo (não-bloqueante) de sobreposição de horário:
+  // (1) na mesma instituição e (2) com outras unidades cadastradas no calendário unificado.
+  // Regra de fronteira: eventos estritamente consecutivos (fim A === início B) NÃO contam como conflito.
+  const { sameInstitutionOverlaps, otherUnitsOverlaps } = useMemo(() => {
+    if (!startDate || !endDate) {
+      return { sameInstitutionOverlaps: [], otherUnitsOverlaps: [] };
+    }
     const startMs = parseApiDate(startDate).getTime();
     const endMs = parseApiDate(endDate).getTime();
     if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
-      return [];
+      return { sameInstitutionOverlaps: [], otherUnitsOverlaps: [] };
     }
 
-    return existingInstitutionEvents.filter((ev) => {
-      if (isEditMode && ev.id === eventId) return false;
-      return ev.startInstantMs < endMs && ev.endInstantMs > startMs;
-    });
-  }, [startDate, endDate, existingInstitutionEvents, isEditMode, eventId]);
+    const sameInst: EventViewModel[] = [];
+    const otherUnits: EventViewModel[] = [];
+
+    for (const ev of allCalendarEvents) {
+      if (isEditMode && ev.id === eventId) continue;
+      const intersects = ev.startInstantMs < endMs && ev.endInstantMs > startMs;
+      if (!intersects) continue;
+
+      if (ev.institution_id === institutionId) {
+        sameInst.push(ev);
+      } else {
+        otherUnits.push(ev);
+      }
+    }
+
+    return { sameInstitutionOverlaps: sameInst, otherUnitsOverlaps: otherUnits };
+  }, [startDate, endDate, allCalendarEvents, isEditMode, eventId, institutionId]);
 
   function validate(): boolean {
     const errors: FormFieldErrors = {};
@@ -334,23 +362,72 @@ export function EventFormPage() {
             </div>
           )}
 
-          {overlappingEvents.length > 0 && (
+          {conflictCheckError && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-slate-50 p-4 text-xs text-slate-700"
+            >
+              <span>{conflictCheckError}</span>
+              <button
+                type="button"
+                onClick={() => void loadEventsForConflictCheck()}
+                disabled={isCheckingConflicts}
+                className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+              >
+                {isCheckingConflicts ? 'Verificando...' : 'Tentar verificar novamente'}
+              </button>
+            </div>
+          )}
+
+          {sameInstitutionOverlaps.length > 0 && (
             <div
               role="status"
               aria-live="polite"
               className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900"
             >
               <p className="font-bold">
-                Aviso informativo: sobreposição de horário na mesma instituição
+                Aviso informativo: sobreposição de horário na sua unidade
               </p>
               <p className="mt-1">
-                Sua unidade já possui {overlappingEvents.length}{' '}
-                {overlappingEvents.length === 1
+                Sua instituição já possui {sameInstitutionOverlaps.length}{' '}
+                {sameInstitutionOverlaps.length === 1
                   ? 'outro evento cadastrado'
                   : 'outros eventos cadastrados'}{' '}
                 nesse mesmo intervalo de horário (
-                {overlappingEvents.map((e) => `"${e.name}"`).join(', ')}). Caso ocorram em salas ou
-                auditórios distintos, você pode prosseguir normalmente.
+                {sameInstitutionOverlaps
+                  .map((e) => `"${e.name}" (${e.formattedStartDate} até ${e.formattedEndDate})`)
+                  .join('; ')}
+                ). Caso ocorram em salas ou auditórios distintos, você pode prosseguir normalmente.
+              </p>
+            </div>
+          )}
+
+          {otherUnitsOverlaps.length > 0 && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-4 rounded-xl border border-sky-300 bg-sky-50 p-4 text-xs text-sky-950"
+            >
+              <p className="font-bold">
+                Sincronia do Calendário Unificado: sobreposição com outra(s) unidade(s)
+              </p>
+              <p className="mt-1">
+                {otherUnitsOverlaps.length === 1
+                  ? 'Existe 1 evento de outra unidade agendado nesse mesmo intervalo:'
+                  : `Existem ${otherUnitsOverlaps.length} eventos de outras unidades agendados nesse mesmo intervalo:`}
+              </p>
+              <ul className="mt-2 list-inside list-disc space-y-1">
+                {otherUnitsOverlaps.map((ev) => (
+                  <li key={ev.id}>
+                    <strong>{ev.institution_name || `Unidade #${ev.institution_id}`}</strong>:{' '}
+                    &ldquo;{ev.name}&rdquo; ({ev.formattedStartDate} até {ev.formattedEndDate})
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px] text-sky-900">
+                Este aviso é apenas informativo para apoiar a sincronia de agendas entre as Fatecs e
+                não bloqueia o salvamento do evento.
               </p>
             </div>
           )}
