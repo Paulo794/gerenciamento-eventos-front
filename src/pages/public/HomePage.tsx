@@ -123,17 +123,18 @@ export function HomePage() {
       <section className="border-b border-slate-200 bg-gradient-to-b from-white to-slate-100">
         <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
           <span className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-800">
-            Centro Paula Souza — Agenda Acadêmica Centralizada
+            Centro Paula Souza — Polo Regional 08
           </span>
           <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-            Portal de Eventos das Fatecs
+            Calendário de Eventos Unificado das Fatecs
           </h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600 sm:text-base">
+          <p className="mt-2 max-w-3xl text-sm text-slate-600 sm:text-base">
             Consulte palestras, semanas acadêmicas, workshops e atividades institucionais da{' '}
             <strong className="font-semibold text-slate-800">
               Fatec Shunji Nishimura (Pompeia)
             </strong>{' '}
-            e unidades parceiras.
+            e das demais Fatecs da região (Adamantina, Assis, Garça, Marília, Ourinhos, Presidente
+            Prudente, Paraguaçu Paulista e Teodoro Sampaio).
           </p>
         </div>
       </section>
