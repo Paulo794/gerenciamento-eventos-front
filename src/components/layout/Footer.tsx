@@ -6,13 +6,13 @@ export function Footer() {
       <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 px-4 py-8 sm:flex-row sm:px-6 lg:px-8">
         <div className="space-y-1.5 text-center sm:text-left text-xs">
           <p className="text-sm font-bold text-white tracking-wide">
-            Faculdade de Tecnologia &ldquo;Shunji Nishimura&rdquo; — Fatec Pompeia
+            Gerenciamento de Eventos — Fatecs do Polo Regional 08
           </p>
           <p className="text-neutral-300">
-            Unidade Piloto do Polo Regional 08 · Avenida Fundação Shunji Nishimura, 605 — Pompeia/SP
+            Centro Estadual de Educação Tecnológica Paula Souza (CEETEPS) · Unidade Piloto: Fatec Pompeia
           </p>
           <p className="text-[11px] text-neutral-400">
-            Projeto Integrador — CST em Sistemas Inteligentes · Centro Paula Souza (CEETEPS)
+            Projeto Integrador — CST em Sistemas Inteligentes · Fatec Shunji Nishimura (Pompeia/SP)
           </p>
         </div>
 

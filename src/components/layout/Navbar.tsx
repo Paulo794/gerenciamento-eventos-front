@@ -17,7 +17,7 @@ export function Navbar() {
           <Link
             to="/"
             className="group flex items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
-            title="Página Inicial — Calendário de Eventos Unificado"
+            title="Página Inicial — Gerenciamento de Eventos"
           >
             <div className="flex flex-col">
               <div className="flex items-baseline gap-2">
@@ -25,11 +25,11 @@ export function Navbar() {
                   fatec
                 </span>
                 <span className="text-sm font-semibold tracking-tight text-slate-700 border-l border-slate-300 pl-2">
-                  Pompeia
+                  Gerenciamento de Eventos
                 </span>
               </div>
               <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
-                <span>Shunji Nishimura</span>
+                <span>Centro Paula Souza</span>
                 <span className="text-slate-300">•</span>
                 <span className="text-red-700 font-semibold">Polo Regional 08</span>
               </div>
